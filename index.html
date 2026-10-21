@@ -33,6 +33,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans G
 .mode-card p{font-size:12px;color:#6b7280}
 .mode-card.hot{border-color:#f59e0b}
 .mode-card .badge{display:inline-block;background:#fee2e2;color:#b91c1c;font-size:11px;padding:1px 7px;border-radius:20px;margin-left:6px}
+.mode-card .badge.ok{background:#dcfce7;color:#15803d}
 .sec-title{padding:4px 16px 8px;font-size:15px;font-weight:700;color:#111827;display:flex;justify-content:space-between;align-items:center}
 .sec-title small{font-weight:400;font-size:12px;color:#6b7280}
 .cat-list{padding:0 16px;display:flex;flex-direction:column;gap:10px}
@@ -45,6 +46,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans G
 .cat-bar{height:5px;background:#eef2f7;border-radius:4px;margin-top:6px;overflow:hidden}
 .cat-bar>div{height:100%;background:#2563eb;border-radius:4px}
 .cat-card .go{color:#9ca3af;font-size:18px}
+.switch-row{display:flex;align-items:center;gap:12px;margin:4px 16px 0;background:#fff;border-radius:12px;padding:12px 14px;box-shadow:0 1px 3px rgba(15,23,42,.05);cursor:pointer}
+.switch-row:active{background:#f8fafc}
+.switch-row .txt{flex:1;min-width:0}
+.switch-row .txt b{font-size:14.5px;display:block}
+.switch-row .txt .sub{font-size:12px;color:#6b7280;margin-top:2px}
+.switch{width:46px;height:26px;border-radius:20px;background:#cbd5e1;position:relative;flex-shrink:0;transition:background .18s}
+.switch>i{position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .18s}
+.switch-row.on .switch{background:#2563eb}
+.switch-row.on .switch>i{transform:translateX(20px)}
 .footer-note{text-align:center;font-size:11px;color:#9ca3af;padding:18px 0 26px}
 /* ---------- 答题页 ---------- */
 .qwrap{padding:16px 16px 130px}
@@ -741,13 +751,17 @@ q("武装力量","m","中国共产党在军队中的组织设置包括（ ）。
 
 /* ================= 状态管理 ================= */
 const STORE_KEY = "jdwz_tiku_v1";
-let state = { answers: {}, starred: [], wrong: [] };
+let state = { answers: {}, starred: [], wrong: [], skipRight: false };
 try {
   const raw = localStorage.getItem(STORE_KEY);
   if (raw) state = Object.assign(state, JSON.parse(raw));
 } catch (e) {}
 function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {} }
 function isMulti(t) { return t === "m"; }
+function rightDone(id) { const r = state.answers[id]; return !!(r && r.ok); }
+function filterSkipped(ids) {
+  return state.skipRight ? ids.filter(function (id) { return !rightDone(id); }) : ids.slice();
+}
 function ansText(question, ans) {
   if (isMulti(question.type)) return (ans || []).map(function (i) { return question.opts[i]; }).join("、");
   return question.opts[ans];
@@ -826,9 +840,14 @@ function renderHome() {
   html += '<div class="mode-grid">'
     + '<div class="mode-card" onclick="goRandom()"><div class="ic">🎲</div><h3>随机练习</h3><p>打乱顺序，随时刷题</p></div>'
     + '<div class="mode-card hot" onclick="goExam()"><div class="ic">📝</div><h3>模拟考试</h3><p>随机50题 · 交卷出分</p></div>'
-    + '<div class="mode-card" onclick="goWrong()"><div class="ic">📕</div><h3>错题重练' + (state.wrong.length ? '<span class="badge">' + state.wrong.length + '</span>' : '') + '</h3><p>专攻做错的题</p></div>'
+    + '<div class="mode-card" onclick="goWrong()"><div class="ic">📕</div><h3>答错的题' + (state.wrong.length ? '<span class="badge">' + state.wrong.length + '</span>' : '') + '</h3><p>做过且已答错，重点攻克</p></div>'
+    + '<div class="mode-card" onclick="goRight()"><div class="ic">✅</div><h3>答对的题' + (o.right ? '<span class="badge ok">' + o.right + '</span>' : '') + '</h3><p>已掌握，定期回顾</p></div>'
     + '<div class="mode-card" onclick="goStar()"><div class="ic">⭐</div><h3>收藏练习' + (state.starred.length ? '<span class="badge">' + state.starred.length + '</span>' : '') + '</h3><p>复习收藏的题</p></div>'
     + '</div>';
+
+  html += '<div class="switch-row' + (state.skipRight ? ' on' : '') + '" onclick="toggleSkipRight()">'
+    + '<div class="txt"><b>跳过已答对的题</b><div class="sub">开启后，随机练习、章节练习不再出现答对过的题</div></div>'
+    + '<div class="switch"><i></i></div></div>';
 
   html += '<div class="sec-title">按章节练习<small>点击进入</small></div><div class="cat-list">';
   cats.forEach(function (c, i) {
@@ -955,6 +974,11 @@ function submitMulti() {
 }
 function nextQ() { if (session.idx < session.list.length - 1) { session.idx++; renderRunner(); } }
 function prevQ() { if (session.idx > 0) { session.idx--; renderRunner(); } }
+function toggleSkipRight() {
+  state.skipRight = !state.skipRight;
+  save(); renderHome();
+  toast(state.skipRight ? "已开启：不再刷出答对的题" : "已关闭：全部题目都刷");
+}
 function toggleStar(id) {
   const at = state.starred.indexOf(id);
   if (at >= 0) state.starred.splice(at, 1); else state.starred.push(id);
@@ -1042,11 +1066,13 @@ function escapeHtml(s) {
 function shuffle(arr) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = arr[i]; arr[i] = arr[j]; arr[j] = t; } return arr; }
 function allIds() { return QUESTIONS.map(function (x) { return x.id; }); }
 function goRandom() {
-  const ids = shuffle(allIds());
+  const ids = filterSkipped(shuffle(allIds()));
+  if (!ids.length) { toast("全部题目都已答对，可关闭「跳过已答对的题」"); return; }
   startSession(ids.slice(0, Math.min(30, ids.length)), { mode: "practice", title: "随机练习" });
 }
 function goCat(cat) {
-  const ids = QUESTIONS.filter(function (x) { return x.cat === cat; }).map(function (x) { return x.id; });
+  const ids = filterSkipped(QUESTIONS.filter(function (x) { return x.cat === cat; }).map(function (x) { return x.id; }));
+  if (!ids.length) { toast("该章节已全部答对，可关闭「跳过已答对的题」"); return; }
   startSession(ids, { mode: "practice", title: cat });
 }
 function goExam() {
@@ -1057,13 +1083,18 @@ function goWrong() {
   if (!state.wrong.length) { toast("暂无错题，先去练习吧"); return; }
   startSession(state.wrong.slice(), { mode: "practice", title: "错题重练" });
 }
+function goRight() {
+  const ids = QUESTIONS.filter(function (x) { return rightDone(x.id); }).map(function (x) { return x.id; });
+  if (!ids.length) { toast("还没有答对的题，先去练习吧"); return; }
+  startSession(ids, { mode: "practice", title: "答对的题" });
+}
 function goStar() {
   if (!state.starred.length) { toast("暂无收藏，先去收藏几题吧"); return; }
   startSession(state.starred.slice(), { mode: "practice", title: "收藏练习" });
 }
 function resetAll() {
   if (!confirm("确定清空所有练习记录、错题和收藏吗？")) return;
-  state = { answers: {}, starred: [], wrong: [] };
+  state = { answers: {}, starred: [], wrong: [], skipRight: state.skipRight };
   save(); renderHome(); toast("已清空");
 }
 let toastTimer = null;
