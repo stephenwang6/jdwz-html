@@ -783,7 +783,8 @@ function startSession(list, opts) {
     title: opts.title,
     list: list.map(function (id) { return QUESTIONS.find(function (x) { return x.id === id; }); }).filter(Boolean),
     idx: 0,
-    picked: [],                    // 每题作答
+    picked: [],                    // 每题作答（多选为数组，提交前为预选）
+    submitted: [],                 // 多选是否已点“提交答案”
     finished: false
   };
   renderRunner();
@@ -878,6 +879,10 @@ function renderRunner() {
   const practice = session.mode === "practice";
   const myAns = session.picked[session.idx];
   const answered = myAns !== undefined && myAns !== null;
+  // 只有练习模式下、且已提交（多选）或已作答（单选/判断）才判定并显示解析
+  const committed = session.mode === "practice"
+    ? (isMulti(question.type) ? !!session.submitted[session.idx] : answered)
+    : false;
 
   const typeName = question.type === "s" ? "单选题" : (question.type === "m" ? "多选题" : "判断题");
 
@@ -904,26 +909,26 @@ function renderRunner() {
       ? (Array.isArray(myAns) && myAns.indexOf(i) >= 0)
       : (myAns === i);
     if (sel) cls += " sel";
-    if (answered) {
+    if (committed) {
       const correctIdx = isMulti(question.type)
         ? question.ans.indexOf(i) >= 0
         : question.ans === i;
       if (correctIdx) cls += " right";
       else if (sel) cls += " wrong";
     }
-    const mark = answered
+    const mark = committed
       ? ((isMulti(question.type) ? question.ans.indexOf(i) >= 0 : question.ans === i) ? '<span class="mark">✓</span>' : (sel ? '<span class="mark">✗</span>' : ''))
       : "";
-    html += '<button class="' + cls + '" ' + (answered ? "disabled" : "") + ' onclick="pick(' + i + ')">'
+    html += '<button class="' + cls + '" ' + (committed ? "disabled" : "") + ' onclick="pick(' + i + ')">'
       + '<span class="letter">' + letters[i] + '</span><span>' + opt + '</span>' + mark + '</button>';
   });
   html += '</div>';
 
-  if (!answered && isMulti(question.type)) {
-    html += '<div class="answer-area"><button class="btn btn-primary" onclick="submitMulti()" ' + ((Array.isArray(myAns) && myAns.length) ? "" : "disabled") + '>提交答案</button></div>';
+  if (practice && !committed && isMulti(question.type)) {
+    html += '<div class="answer-area"><button class="btn btn-primary" onclick="submitMulti()" ' + ((Array.isArray(myAns) && myAns.length) ? "" : "disabled") + '>提交答案（已选 ' + ((Array.isArray(myAns) ? myAns.length : 0)) + ' 项）</button></div>';
   }
 
-  if (practice && answered) {
+  if (practice && committed) {
     const ok = isRight(question, myAns);
     html += '<div class="exp-box show">'
       + '<div class="verdict ' + (ok ? "ok" : "no") + '">' + (ok ? "✓ 回答正确" : "✗ 回答错误") + '</div>'
@@ -945,30 +950,33 @@ function renderRunner() {
 /* ================= 交互 ================= */
 function pick(i) {
   const question = cur();
+  if (isMulti(question.type)) {
+    // 多选：先勾选/取消，点“提交答案”后才判定
+    if (session.mode === "practice" && session.submitted[session.idx]) return;
+    let arr = Array.isArray(session.picked[session.idx]) ? session.picked[session.idx].slice() : [];
+    const at = arr.indexOf(i);
+    if (at >= 0) arr.splice(at, 1); else arr.push(i);
+    arr.sort(function (a, b) { return a - b; });
+    session.picked[session.idx] = arr;
+    renderRunner();
+    return;
+  }
   const done = session.picked[session.idx] !== undefined && session.picked[session.idx] !== null;
   if (session.mode === "practice") {
     if (done) return;   // 本回合已答过，仅可查看解析
     session.picked[session.idx] = i;
     recordAnswer(question, i);
-    renderRunner();
   } else {
-    if (isMulti(question.type)) {
-      let arr = Array.isArray(session.picked[session.idx]) ? session.picked[session.idx].slice() : [];
-      const at = arr.indexOf(i);
-      if (at >= 0) arr.splice(at, 1); else arr.push(i);
-      arr.sort(function (a, b) { return a - b; });
-      session.picked[session.idx] = arr;
-    } else {
-      session.picked[session.idx] = i;
-    }
-    renderRunner();
+    session.picked[session.idx] = i;
   }
+  renderRunner();
 }
 function submitMulti() {
   const question = cur();
   const arr = session.picked[session.idx];
   if (!Array.isArray(arr) || !arr.length) return;
   session.picked[session.idx] = arr.slice();
+  session.submitted[session.idx] = true;
   recordAnswer(question, arr);
   renderRunner();
 }
